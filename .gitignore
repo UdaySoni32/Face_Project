@@ -1,0 +1,6 @@
+# User-specific data and generated files
+dataset/
+face_encodings.pickle
+
+# Docker build cache
+.dockerignore

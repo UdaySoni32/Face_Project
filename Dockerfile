@@ -1,6 +1,6 @@
 # Use an official Python runtime as a parent image
 # Using a specific version is good practice
-FROM python:3.9-slim
+FROM python:3.9-bookworm
 
 # Set the working directory in the container
 WORKDIR /app
@@ -28,6 +28,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of our application code into the container
 COPY . .
 
-# The default command to run when the container starts.
-# We will override this for different tasks.
-CMD ["python", "recognize.py"]
+# Expose port 80 to the outside world
+EXPOSE 80
+
+# The command to run our Uvicorn server for the FastAPI app
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]

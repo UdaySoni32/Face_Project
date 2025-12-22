@@ -69,59 +69,61 @@ function App() {
 
   return (
     <div className="App">
-      <header className="App-header">
-        <h1>Face Recognition System</h1>
-        <p>University Entry / Exit Panel</p>
-        <nav className="mode-switcher">
-          <button onClick={() => setMode('recognize')} disabled={mode === 'recognize'}>
-            Recognize
-          </button>
-          <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>
-            Enroll
-          </button>
-          <button onClick={() => setMode('admin')} disabled={mode === 'admin'}> {/* New Admin Button */}
-            Admin
-          </button>
-        </nav>
-      </header>
+      <div className="app-container">
+        <header className="App-header">
+          <h1>Face Recognition System</h1>
+          <p>University Entry / Exit Panel</p>
+          <nav className="mode-switcher">
+            <button onClick={() => setMode('recognize')} disabled={mode === 'recognize'}>
+              Recognize
+            </button>
+            <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>
+              Enroll
+            </button>
+            <button onClick={() => setMode('admin')} disabled={mode === 'admin'}> {/* New Admin Button */}
+              Admin
+            </button>
+          </nav>
+        </header>
 
-      <main>
-        <div className="main-content">
-          {mode === 'recognize' && (
-            <div className="video-container">
-              <h2>Live Feed</h2>
-              <div className="video-wrapper">
-                {videoSrc ? (
-                  <img src={videoSrc} alt="Live video feed" />
-                ) : (
-                  <div className="video-placeholder">
-                    <p>Connecting to video stream...</p>
-                  </div>
-                )}
+        <main>
+          <div className="main-content">
+            {mode === 'recognize' && (
+              <div className="video-container">
+                <h2>Live Feed</h2>
+                <div className="video-wrapper">
+                  {videoSrc ? (
+                    <img src={videoSrc} alt="Live video feed" />
+                  ) : (
+                    <div className="video-placeholder">
+                      <p>Connecting to video stream...</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-          {mode === 'enroll' && (
-            <div className="controls-container">
-              <h2>Enroll New Person</h2>
-              <EnrollmentForm />
-            </div>
-          )}
-          {mode === 'admin' && ( /* New Admin Panel Rendering */
-            <div className="controls-container">
-              <h2>Admin Panel</h2>
-              <AdminPanel />
-            </div>
-          )}
-        </div>
-        <aside className="sidebar">
-          <EventLog />
-        </aside>
-      </main>
+            )}
+            {mode === 'enroll' && (
+              <div className="controls-container">
+                <h2>Enroll New Person</h2>
+                <EnrollmentForm />
+              </div>
+            )}
+            {mode === 'admin' && ( /* New Admin Panel Rendering */
+              <div className="controls-container">
+                <h2>Admin Panel</h2>
+                <AdminPanel />
+              </div>
+            )}
+          </div>
+          <aside className="sidebar">
+            <EventLog />
+          </aside>
+        </main>
 
-      <footer className="App-footer">
-        <p>System Status: {status}</p>
-      </footer>
+        <footer className="App-footer">
+          <p>System Status: {status}</p>
+        </footer>
+      </div>
     </div>
   );
 }

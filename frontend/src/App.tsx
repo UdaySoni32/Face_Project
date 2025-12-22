@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { EnrollmentForm } from './EnrollmentForm';
+import { EventLog } from './EventLog';
 import './App.css';
 
 type Mode = 'recognize' | 'enroll';
@@ -76,25 +77,30 @@ function App() {
       </header>
 
       <main>
-        {mode === 'recognize' ? (
-          <div className="video-container">
-            <h2>Live Feed</h2>
-            <div className="video-wrapper">
-              {videoSrc ? (
-                <img src={videoSrc} alt="Live video feed" />
-              ) : (
-                <div className="video-placeholder">
-                  <p>Connecting to video stream...</p>
-                </div>
-              )}
+        <div className="main-content">
+          {mode === 'recognize' ? (
+            <div className="video-container">
+              <h2>Live Feed</h2>
+              <div className="video-wrapper">
+                {videoSrc ? (
+                  <img src={videoSrc} alt="Live video feed" />
+                ) : (
+                  <div className="video-placeholder">
+                    <p>Connecting to video stream...</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="controls-container">
-            <h2>Enroll New Person</h2>
-            <EnrollmentForm />
-          </div>
-        )}
+          ) : (
+            <div className="controls-container">
+              <h2>Enroll New Person</h2>
+              <EnrollmentForm />
+            </div>
+          )}
+        </div>
+        <aside className="sidebar">
+          <EventLog />
+        </aside>
       </main>
 
       <footer className="App-footer">

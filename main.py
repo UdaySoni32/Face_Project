@@ -149,15 +149,27 @@ async def video_feed(websocket: WebSocket):
                 for name in newly_seen:
                     log_event(name)
                 
+                # Update the global set of currently seen people
+                CURRENTLY_SEEN_NAMES.clear()
                 CURRENTLY_SEEN_NAMES.update(current_names_in_frame)
-                # Simple logic for "exit": if no known faces are seen, clear the set.
-                if not current_names_in_frame:
-                    CURRENTLY_SEEN_NAMES.clear()
-                
-            # Annotation logic (can be simplified if not needed in real-time)
-            # ... we can skip drawing for now to keep it clean ...
 
-            ret, buffer = cv2.imencode('.jpg', processed_frame)
+            # --- Annotation Logic ---
+            # Draw the results on the original frame
+            for (top, right, bottom, left), name in zip(face_locations, last_known_names):
+                top *= 4
+                right *= 4
+                bottom *= 4
+                left *= 4
+
+                # Draw a box around the face
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+
+                # Draw a label with a name below the face
+                cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
+                font = cv2.FONT_HERSHEY_DUPLEX
+                cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+
+            ret, buffer = cv2.imencode('.jpg', frame)
             if not ret: continue
             await websocket.send_bytes(buffer.tobytes())
             frame_count += 1

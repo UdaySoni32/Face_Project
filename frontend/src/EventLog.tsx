@@ -11,14 +11,15 @@ const REFRESH_INTERVAL_MS = 5000; // Refresh every 5 seconds
 export const EventLog: React.FC = () => {
   const [events, setEvents] = useState<RecognitionEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchEvents = async () => {
+      setIsLoading(true); // Start loading
       try {
-        // This request is proxied by Vite to the backend's /api/events endpoint
         const response = await fetch('/api/events');
         if (!response.ok) {
-          throw new Error(`Failed to fetch events: ${response.status}`);
+          throw new Error(`Failed to fetch events: ${response.statusText}`);
         }
         const data: RecognitionEvent[] = await response.json();
         setEvents(data);
@@ -30,47 +31,52 @@ export const EventLog: React.FC = () => {
         } else {
             setError("An unknown error occurred.");
         }
+      } finally {
+        setIsLoading(false); // Stop loading regardless of outcome
       }
     };
 
-    // Fetch immediately on component mount
-    fetchEvents();
-
-    // Then, set up an interval to fetch periodically
+    fetchEvents(); // Initial fetch
     const intervalId = setInterval(fetchEvents, REFRESH_INTERVAL_MS);
 
-    // Cleanup function: clear the interval when the component is unmounted
     return () => {
-      clearInterval(intervalId);
+      clearInterval(intervalId); // Cleanup on unmount
     };
-  }, []); // Empty dependency array means this effect runs once on mount
+  }, []);
 
   return (
     <div className="event-log-container">
-      <h3>Recognition Events</h3>
-      {error && <p className="error-message">Could not load events: {error}</p>}
-      <table className="event-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Timestamp</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.length > 0 ? (
-            events.map((event, index) => (
-              <tr key={index}>
-                <td>{event.name}</td>
-                <td>{event.timestamp}</td>
-              </tr>
-            ))
-          ) : (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3>Recognition Events</h3>
+        {isLoading && <div className="spinner"></div>}
+      </div>
+      
+      {error && <p className="feedback-message status-error">Could not load events: {error}</p>}
+      
+      <div className="event-table-wrapper">
+        <table className="event-table">
+          <thead>
             <tr>
-              <td colSpan={2}>No recognition events logged yet.</td>
+              <th>Name</th>
+              <th>Timestamp</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {events.length > 0 ? (
+              events.map((event, index) => (
+                <tr key={index}>
+                  <td>{event.name}</td>
+                  <td>{event.timestamp}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={2}>No recognition events logged yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

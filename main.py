@@ -15,8 +15,8 @@ from typing import List, Set, Dict
 DATABASE_FILE = "log.db"
 DATASET_DIR = "dataset"
 ENCODINGS_FILE = "face_encodings.pickle"
-# In a real app, this would come from a config file or environment variable
 ADMIN_API_KEY = "SECRET_DEV_KEY"
+EVENT_COOLDOWN_SECONDS = 60
 
 app = FastAPI()
 KNOWN_FACE_ENCODINGS = []
@@ -24,7 +24,7 @@ KNOWN_FACE_NAMES = []
 LAST_LOGGED_TIMESTAMP: Dict[str, datetime] = {}
 
 # --- Authentication ---
-api_key_header = APIKeyHeader(name="X-API-Key")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 async def get_api_key(api_key: str = Depends(api_key_header)):
     if api_key != ADMIN_API_KEY:
@@ -49,10 +49,9 @@ def init_db():
     conn.close()
     print("Database initialized.")
 
-# ... (other helper functions like log_event, run_encoding_process, load_known_faces remain the same) ...
 def log_event(name: str):
     now = datetime.now()
-    if name in LAST_LOGGED_TIMESTAMP and (now - LAST_LOGGED_TIMESTAMP[name]).total_seconds() < 60:
+    if name in LAST_LOGGED_TIMESTAMP and (now - LAST_LOGGED_TIMESTAMP[name]).total_seconds() < EVENT_COOLDOWN_SECONDS:
         return
     timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DATABASE_FILE)
@@ -89,7 +88,6 @@ def load_known_faces():
             print(f"Successfully loaded {len(KNOWN_FACE_ENCODINGS)} known faces.")
         except Exception: run_encoding_process()
 
-
 # --- FastAPI App Events ---
 @app.on_event("startup")
 def startup_event():
@@ -100,8 +98,8 @@ def startup_event():
 @app.get("/")
 async def root(): return {"message": "Face Recognition API running."}
 
-@app.get("/events") # Corrected path
-async def get_events():
+@app.get("/events") # CORRECTED PATH
+async def get_events_api():
     conn = sqlite3.connect(DATABASE_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -110,8 +108,8 @@ async def get_events():
     conn.close()
     return events
 
-@app.post("/api/enroll") # Requires protection
-async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(...), api_key: str = Depends(get_api_key)):
+@app.post("/enroll", dependencies=[Depends(get_api_key)]) # CORRECTED PATH & PROTECTED
+async def enroll_person_api(name: str = Form(...), files: List[UploadFile] = File(...)):
     print(f"Received enrollment request for: {name}")
     person_dir = os.path.join(DATASET_DIR, name); os.makedirs(person_dir, exist_ok=True)
     for i, file in enumerate(files):
@@ -121,18 +119,13 @@ async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(..
     run_encoding_process()
     return JSONResponse(status_code=200, content={"message": f"Successfully enrolled {name}."})
 
-# --- New Admin Endpoint ---
-@app.get("/api/admin/status", dependencies=[Depends(get_api_key)])
-async def get_admin_status():
-    """A protected endpoint to check admin status."""
+@app.get("/admin/status", dependencies=[Depends(get_api_key)]) # CORRECTED PATH
+async def get_admin_status_api():
     return {"status": "ok", "message": "Admin endpoint reached successfully."}
-
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/video_feed")
 async def video_feed(websocket: WebSocket):
-    # (The existing WebSocket code remains here, unchanged)
-    # ...
     await websocket.accept()
     video_capture = cv2.VideoCapture(0)
     if not video_capture.isOpened(): await websocket.close(code=1011, reason="Could not open webcam."); return
@@ -143,7 +136,9 @@ async def video_feed(websocket: WebSocket):
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1]
             face_locations = face_recognition.face_locations(small_frame)
             face_encodings = face_recognition.face_encodings(small_frame, face_locations)
-            for i, face_encoding in enumerate(face_encodings):
+            
+            names_in_frame = []
+            for face_encoding in face_encodings:
                 matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, 0.6)
                 name = "Unknown"
                 if True in matches:
@@ -152,11 +147,15 @@ async def video_feed(websocket: WebSocket):
                     if matches[best_match_index]:
                         name = KNOWN_FACE_NAMES[best_match_index]
                         log_event(name)
-                (top, right, bottom, left) = face_locations[i]
+                names_in_frame.append(name)
+
+            for i, (top, right, bottom, left) in enumerate(face_locations):
+                name = names_in_frame[i]
                 top *= 4; right *= 4; bottom *= 4; left *= 4
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
                 cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 1)
+
             ret, buffer = cv2.imencode('.jpg', frame)
             if ret: await websocket.send_bytes(buffer.tobytes())
             await asyncio.sleep(0.05)

@@ -5,28 +5,29 @@ import numpy as np
 import os
 import asyncio
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketState
-from typing import List, Set
+from typing import List, Set, Dict
 
 # --- Constants & Globals ---
 DATABASE_FILE = "log.db"
 DATASET_DIR = "dataset"
 ENCODINGS_FILE = "face_encodings.pickle"
-PROCESS_FRAME_EVERY_N_FRAMES = 4 # Slow down processing a bit to make event detection more stable
-NAME_PERSISTENCE_FRAMES = 5
+PROCESS_FRAME_EVERY_N_FRAMES = 2
+# Cooldown period in seconds before logging the same person again
+EVENT_COOLDOWN_SECONDS = 60 
 
 app = FastAPI()
 KNOWN_FACE_ENCODINGS = []
 KNOWN_FACE_NAMES = []
 # --- State for Event Detection ---
-CURRENTLY_SEEN_NAMES: Set[str] = set()
+# Tracks the last time a name was logged to prevent spam
+LAST_LOGGED_TIMESTAMP: Dict[str, datetime] = {}
 
 # --- Database Functions ---
 def init_db():
-    """Initializes the database and creates the events table if it doesn't exist."""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -41,14 +42,23 @@ def init_db():
     print("Database initialized.")
 
 def log_event(name: str):
-    """Logs a new recognition event to the database."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now()
+    # Check if the person is on cooldown
+    if name in LAST_LOGGED_TIMESTAMP:
+        last_logged = LAST_LOGGED_TIMESTAMP[name]
+        if (now - last_logged).total_seconds() < EVENT_COOLDOWN_SECONDS:
+            return # On cooldown, so don't log
+
+    timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO events (name, timestamp) VALUES (?, ?)", (name, timestamp))
+    cursor.execute("INSERT INTO events (name, timestamp) VALUES (?, ?)", (name, timestamp_str))
     conn.commit()
     conn.close()
-    print(f"Event logged: {name} at {timestamp}")
+    
+    # Update the last logged timestamp for this person
+    LAST_LOGGED_TIMESTAMP[name] = now
+    print(f"Event logged: {name} at {timestamp_str}")
 
 # --- Helper Functions ---
 def run_encoding_process():
@@ -70,7 +80,7 @@ def run_encoding_process():
     load_known_faces()
 
 def load_known_faces():
-    # (Same as before, with minor tweaks for robustness)
+    # (Same as before)
     global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES
     if not os.path.exists(ENCODINGS_FILE): run_encoding_process(); return
     with open(ENCODINGS_FILE, 'rb') as f:
@@ -87,9 +97,8 @@ def startup_event():
 
 # --- API Endpoints ---
 @app.post("/api/enroll")
-# (Changed endpoint to match proxy)
+# (Same as before)
 async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(...)):
-    # (Same as before)
     print(f"Received enrollment request for: {name}")
     person_dir = os.path.join(DATASET_DIR, name); os.makedirs(person_dir, exist_ok=True)
     for i, file in enumerate(files):
@@ -99,9 +108,8 @@ async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(..
     run_encoding_process()
     return JSONResponse(status_code=200, content={"message": f"Successfully enrolled {name}."})
 
-@app.get("/api/events")
+@app.get("/events")
 async def get_events():
-    """Retrieves the last 20 recognition events from the database."""
     conn = sqlite3.connect(DATABASE_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -121,63 +129,51 @@ async def video_feed(websocket: WebSocket):
     video_capture = cv2.VideoCapture(0)
     if not video_capture.isOpened(): await websocket.close(code=1011, reason="Could not open webcam."); return
     
-    frame_count = 0; last_known_names = []; frames_since_seen = []
     try:
-        while True:
+        # More robust loop that checks connection state
+        while websocket.client_state == WebSocketState.CONNECTED:
             ret, frame = video_capture.read()
-            if not ret: break
+            if not ret: 
+                await asyncio.sleep(0.1)
+                continue
+
+            # Process frame
+            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1]
+            face_locations = face_recognition.face_locations(small_frame)
+            face_encodings = face_recognition.face_encodings(small_frame, face_locations)
             
-            processed_frame = frame.copy()
-            if frame_count % PROCESS_FRAME_EVERY_N_FRAMES == 0:
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1]
-                face_locations = face_recognition.face_locations(small_frame)
-                face_encodings = face_recognition.face_encodings(small_frame, face_locations)
-                
-                current_names_in_frame = set()
-                for face_encoding in face_encodings:
-                    matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, 0.6)
-                    name = "Unknown"
-                    if True in matches:
-                        face_distances = face_recognition.face_distance(KNOWN_FACE_ENCODINGS, face_encoding)
-                        best_match_index = np.argmin(face_distances)
-                        if matches[best_match_index]:
-                            name = KNOWN_FACE_NAMES[best_match_index]
-                            current_names_in_frame.add(name)
-                
-                # --- Event Detection Logic ---
-                newly_seen = current_names_in_frame - CURRENTLY_SEEN_NAMES
-                for name in newly_seen:
-                    log_event(name)
-                
-                # Update the global set of currently seen people
-                CURRENTLY_SEEN_NAMES.clear()
-                CURRENTLY_SEEN_NAMES.update(current_names_in_frame)
+            for face_encoding in face_encodings:
+                matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, 0.6)
+                name = "Unknown"
+                if True in matches:
+                    face_distances = face_recognition.face_distance(KNOWN_FACE_ENCODINGS, face_encoding)
+                    best_match_index = np.argmin(face_distances)
+                    if matches[best_match_index]:
+                        name = KNOWN_FACE_NAMES[best_match_index]
+                        # --- Log Event with Cooldown ---
+                        log_event(name)
 
-            # --- Annotation Logic ---
-            # Draw the results on the original frame
-            for (top, right, bottom, left), name in zip(face_locations, last_known_names):
-                top *= 4
-                right *= 4
-                bottom *= 4
-                left *= 4
-
-                # Draw a box around the face
+                # --- Annotation Logic ---
+                (top, right, bottom, left) = face_locations[0]
+                top *= 4; right *= 4; bottom *= 4; left *= 4
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-
-                # Draw a label with a name below the face
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
-                font = cv2.FONT_HERSHEY_DUPLEX
-                cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+                cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 1)
 
+            # Encode and send frame
             ret, buffer = cv2.imencode('.jpg', frame)
-            if not ret: continue
-            await websocket.send_bytes(buffer.tobytes())
-            frame_count += 1
-            await asyncio.sleep(0.03) # Slightly more sleep
-    except WebSocketDisconnect: print("Client disconnected.")
-    except Exception as e: print(f"An error occurred: {e}")
+            if ret:
+                await websocket.send_bytes(buffer.tobytes())
+            
+            await asyncio.sleep(0.05) # Yield control
+            
+    except WebSocketDisconnect:
+        print("Client disconnected gracefully.")
+    except Exception as e:
+        print(f"An error occurred in WebSocket: {e}")
     finally:
         video_capture.release()
-        CURRENTLY_SEEN_NAMES.clear()
-        if websocket.client_state != WebSocketState.DISCONNECTED: await websocket.close()
-        print("Video stream stopped.")
+        print("Video capture released.")
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.close()
+            print("WebSocket connection closed forcefully.")

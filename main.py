@@ -10,6 +10,8 @@ from starlette.websockets import WebSocketState
 # --- Constants & Globals ---
 ENCODINGS_FILE = "face_encodings.pickle"
 PROCESS_FRAME_EVERY_N_FRAMES = 2
+# Simple smoothing: Keep last name for this many frames if recognition is lost
+NAME_PERSISTENCE_FRAMES = 5 
 
 app = FastAPI()
 KNOWN_FACE_ENCODINGS = []
@@ -49,23 +51,28 @@ async def video_feed(websocket: WebSocket):
         return
 
     frame_count = 0
+    # --- State for smoothing logic ---
+    last_known_names = []
+    frames_since_seen = []
+
     try:
         while True:
             ret, frame = video_capture.read()
             if not ret:
                 break
 
+            rgb_frame = frame[:, :, ::-1] # BGR to RGB for processing
+
             # Only process every Nth frame to save CPU
             if frame_count % PROCESS_FRAME_EVERY_N_FRAMES == 0:
                 # Resize frame for faster processing
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-                rgb_small_frame = small_frame[:, :, ::-1] # BGR to RGB
+                small_frame = cv2.resize(rgb_frame, (0, 0), fx=0.25, fy=0.25)
 
-                # Find faces and encodings in the current frame
-                face_locations = face_recognition.face_locations(rgb_small_frame)
-                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+                # Find all the faces and face encodings in the current frame of video
+                face_locations = face_recognition.face_locations(small_frame)
+                face_encodings = face_recognition.face_encodings(small_frame, face_locations)
 
-                face_names = []
+                current_names = []
                 for face_encoding in face_encodings:
                     matches = face_recognition.compare_faces(KNOWN_FACE_ENCODINGS, face_encoding, tolerance=0.6)
                     name = "Unknown"
@@ -76,23 +83,31 @@ async def video_feed(websocket: WebSocket):
                         if matches[best_match_index]:
                             name = KNOWN_FACE_NAMES[best_match_index]
                     
-                    face_names.append(name)
+                    current_names.append(name)
+                
+                # --- Update smoothing state ---
+                # This is a very simple tracker, it assumes the number of faces doesn't change wildly
+                if len(current_names) == len(last_known_names):
+                    for i, name in enumerate(current_names):
+                        if name != "Unknown":
+                            last_known_names[i] = name
+                            frames_since_seen[i] = 0
+                        elif frames_since_seen[i] < NAME_PERSISTENCE_FRAMES:
+                            frames_since_seen[i] += 1
+                        else:
+                            last_known_names[i] = "Unknown"
+                else:
+                    # If number of faces changes, reset the tracking
+                    last_known_names = current_names
+                    frames_since_seen = [0] * len(current_names)
 
-                # Annotate the original, full-size frame
-                for (top, right, bottom, left), name in zip(face_locations, face_names):
-                    # Scale back up face locations
-                    top *= 4
-                    right *= 4
-                    bottom *= 4
-                    left *= 4
-
-                    # Draw a box around the face
-                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-
-                    # Draw a label with a name below the face
-                    cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
-                    font = cv2.FONT_HERSHEY_DUPLEX
-                    cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+            # Annotate the original, full-size frame using the smoothed names
+            for (top, right, bottom, left), name in zip(face_locations, last_known_names):
+                top *= 4; right *= 4; bottom *= 4; left *= 4
+                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
+                cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
+                font = cv2.FONT_HERSHEY_DUPLEX
+                cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
 
             # Encode the frame as JPEG
             ret, buffer = cv2.imencode('.jpg', frame)
@@ -103,7 +118,7 @@ async def video_feed(websocket: WebSocket):
             await websocket.send_bytes(buffer.tobytes())
             
             frame_count += 1
-            await asyncio.sleep(0.01) # Yield control to allow other tasks
+            await asyncio.sleep(0.01)
 
     except WebSocketDisconnect:
         print("Client disconnected.")

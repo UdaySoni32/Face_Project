@@ -1,91 +1,100 @@
 import { useState, useEffect, useRef } from 'react';
+import { EnrollmentForm } from './EnrollmentForm';
 import './App.css';
+
+type Mode = 'recognize' | 'enroll';
 
 function App() {
   const [videoSrc, setVideoSrc] = useState<string>('');
   const [status, setStatus] = useState<string>('Disconnected');
+  const [mode, setMode] = useState<Mode>('recognize');
+  
   const imageUrlRef = useRef<string | null>(null);
+  const webSocketRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
+  const connectWebSocket = () => {
     // Construct WebSocket URL. It will be proxied by Vite dev server.
     const wsProtocol = window.location.protocol === 'https-:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/video_feed`;
 
     setStatus('Connecting...');
     const ws = new WebSocket(wsUrl);
+    webSocketRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('WebSocket connection established');
-      setStatus('Connected');
-    };
+    ws.onopen = () => setStatus('Connected');
+    ws.onclose = () => setStatus('Disconnected');
+    ws.onerror = () => setStatus('Error');
 
     ws.onmessage = (event) => {
-      // The backend sends JPEG image data as a binary blob.
       const blob = event.data as Blob;
-      
-      // To display it, we create a temporary URL for the blob.
       const newUrl = URL.createObjectURL(blob);
-      
-      // Update the video source state with the new URL.
       setVideoSrc(newUrl);
 
-      // Clean up the previous temporary URL to prevent memory leaks.
       if (imageUrlRef.current) {
         URL.revokeObjectURL(imageUrlRef.current);
       }
       imageUrlRef.current = newUrl;
     };
+  };
 
-    ws.onclose = () => {
-      console.log('WebSocket connection closed');
-      setStatus('Disconnected');
-    };
+  const disconnectWebSocket = () => {
+    if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) {
+      webSocketRef.current.close();
+    }
+    if (imageUrlRef.current) {
+      URL.revokeObjectURL(imageUrlRef.current);
+    }
+    setVideoSrc('');
+  };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setStatus('Error');
-    };
+  useEffect(() => {
+    if (mode === 'recognize') {
+      connectWebSocket();
+    } else {
+      disconnectWebSocket();
+    }
 
-    // Cleanup function to close the WebSocket connection when the component unmounts.
+    // Cleanup function when the component unmounts or mode changes
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-      // Also clean up the last URL on unmount.
-      if (imageUrlRef.current) {
-        URL.revokeObjectURL(imageUrlRef.current);
-      }
+      disconnectWebSocket();
     };
-  }, []); // The empty dependency array ensures this effect runs only once on mount.
+  }, [mode]);
 
   return (
     <div className="App">
       <header className="App-header">
         <h1>Face Recognition System</h1>
         <p>University Entry / Exit Panel</p>
+        <nav className="mode-switcher">
+          <button onClick={() => setMode('recognize')} disabled={mode === 'recognize'}>
+            Recognize
+          </button>
+          <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>
+            Enroll
+          </button>
+        </nav>
       </header>
 
       <main>
-        <div className="video-container">
-          <h2>Live Feed</h2>
-          <div className="video-wrapper">
-            {videoSrc ? (
-              <img src={videoSrc} alt="Live video feed" />
-            ) : (
-              <div className="video-placeholder">
-                <p>Connecting to video stream...</p>
-              </div>
-            )}
+        {mode === 'recognize' ? (
+          <div className="video-container">
+            <h2>Live Feed</h2>
+            <div className="video-wrapper">
+              {videoSrc ? (
+                <img src={videoSrc} alt="Live video feed" />
+              ) : (
+                <div className="video-placeholder">
+                  <p>Connecting to video stream...</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-
-        <div className="controls-container">
-          <h2>Enroll New Person</h2>
-          {/* The enrollment form and controls will be built here in a later phase */}
-          <div className="enrollment-placeholder">
-            <p>Enrollment controls will be here.</p>
+        ) : (
+          <div className="controls-container">
+            <h2>Enroll New Person</h2>
+            <EnrollmentForm />
           </div>
-        </div>
+        )}
       </main>
 
       <footer className="App-footer">

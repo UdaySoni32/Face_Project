@@ -11,6 +11,12 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
       },
+      // Proxying regular API calls
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
     },
   },
 })

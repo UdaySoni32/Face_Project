@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { EnrollmentForm } from './EnrollmentForm';
 import { EventLog } from './EventLog';
+import { AdminPanel } from './AdminPanel'; // New import
 import './App.css';
 
-type Mode = 'recognize' | 'enroll';
+type Mode = 'recognize' | 'enroll' | 'admin'; // Updated type
 
 function App() {
   const [videoSrc, setVideoSrc] = useState<string>('');
@@ -14,7 +15,11 @@ function App() {
   const webSocketRef = useRef<WebSocket | null>(null);
 
   const connectWebSocket = () => {
-    // Construct WebSocket URL. It will be proxied by Vite dev server.
+    // Only connect if in recognize mode and not already connecting/connected
+    if (mode !== 'recognize' || (webSocketRef.current && (webSocketRef.current.readyState === WebSocket.OPEN || webSocketRef.current.readyState === WebSocket.CONNECTING))) {
+      return;
+    }
+
     const wsProtocol = window.location.protocol === 'https-:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/video_feed`;
 
@@ -41,9 +46,11 @@ function App() {
   const disconnectWebSocket = () => {
     if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) {
       webSocketRef.current.close();
+      webSocketRef.current = null; // Clear ref after closing
     }
     if (imageUrlRef.current) {
       URL.revokeObjectURL(imageUrlRef.current);
+      imageUrlRef.current = null; // Clear ref after revoking
     }
     setVideoSrc('');
   };
@@ -55,7 +62,6 @@ function App() {
       disconnectWebSocket();
     }
 
-    // Cleanup function when the component unmounts or mode changes
     return () => {
       disconnectWebSocket();
     };
@@ -73,12 +79,15 @@ function App() {
           <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>
             Enroll
           </button>
+          <button onClick={() => setMode('admin')} disabled={mode === 'admin'}> {/* New Admin Button */}
+            Admin
+          </button>
         </nav>
       </header>
 
       <main>
         <div className="main-content">
-          {mode === 'recognize' ? (
+          {mode === 'recognize' && (
             <div className="video-container">
               <h2>Live Feed</h2>
               <div className="video-wrapper">
@@ -91,10 +100,17 @@ function App() {
                 )}
               </div>
             </div>
-          ) : (
+          )}
+          {mode === 'enroll' && (
             <div className="controls-container">
               <h2>Enroll New Person</h2>
               <EnrollmentForm />
+            </div>
+          )}
+          {mode === 'admin' && ( /* New Admin Panel Rendering */
+            <div className="controls-container">
+              <h2>Admin Panel</h2>
+              <AdminPanel />
             </div>
           )}
         </div>

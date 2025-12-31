@@ -1,91 +1,92 @@
 import { useState, useEffect, useRef } from 'react';
 import { EnrollmentForm } from './EnrollmentForm';
-import { RegistrationForm } from './RegistrationForm';
 import { EventLog } from './EventLog';
 import './App.css';
 
-type Mode = 'recognize' | 'enroll' | 'register';
+type Mode = 'recognize' | 'enroll';
+
+// Define the shape of the recognition result from our new function
+interface RecognitionResult {
+  box: { x: number; y: number; width: number; height: number; };
+  label: string;
+}
 
 function App() {
-  const [videoSrc, setVideoSrc] = useState<string>('');
-  const [status, setStatus] = useState<string>('Disconnected');
   const [mode, setMode] = useState<Mode>('recognize');
+  const [recognitionResult, setRecognitionResult] = useState<string>('');
+  const [snapshot, setSnapshot] = useState<string | null>(null);
   
-  const imageUrlRef = useRef<string | null>(null);
-  const webSocketRef = useRef<WebSocket | null>(null);
-
-  const connectWebSocket = () => {
-    if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) return;
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/video_feed`;
-
-    setStatus('Connecting...');
-    const ws = new WebSocket(wsUrl);
-    webSocketRef.current = ws;
-
-    ws.onopen = () => setStatus('Connected');
-    ws.onclose = () => setStatus('Disconnected');
-    ws.onerror = () => setStatus('Error');
-
-    ws.onmessage = (event) => {
-      const blob = event.data as Blob;
-      const newUrl = URL.createObjectURL(blob);
-      setVideoSrc(newUrl);
-
-      if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
-      imageUrlRef.current = newUrl;
-    };
-  };
-
-  const disconnectWebSocket = () => {
-    if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) {
-      webSocketRef.current.close();
-    }
-    if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
-    setVideoSrc('');
-  };
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    // Start webcam stream only when in recognize mode
     if (mode === 'recognize') {
-      connectWebSocket();
-    } else {
-      disconnectWebSocket();
+      const startWebcam = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        } catch (err) {
+          console.error("Error accessing webcam:", err);
+        }
+      };
+      startWebcam();
+
+      return () => {
+        if (videoRef.current && videoRef.current.srcObject) {
+          (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+        }
+      };
     }
-    // This return statement acts as a cleanup function
-    return () => disconnectWebSocket();
   }, [mode]);
 
-  const renderContent = () => {
-    switch(mode) {
-      case 'recognize':
-        return (
-          <div className="video-container">
-            <h2>Live Feed</h2>
-            <div className="video-wrapper">
-              {videoSrc ? <img src={videoSrc} alt="Live video feed" /> : <div className="video-placeholder"><p>Connecting...</p></div>}
-            </div>
-          </div>
-        );
-      case 'enroll':
-        return (
-          <div className="controls-container">
-            <h2>Enroll Faces for Existing Student</h2>
-            <EnrollmentForm />
-          </div>
-        );
-      case 'register':
-        return (
-          <div className="controls-container">
-            <h2>Register New Student</h2>
-            <p>Add a new student to the mock student database.</p>
-            <RegistrationForm />
-          </div>
-        );
-      default:
-        return null;
+  const handleRecognize = async () => {
+    if (videoRef.current && canvasRef.current) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        
+        if (context) {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/png');
+            setSnapshot(dataUrl); // Show the snapshot
+            setRecognitionResult('Processing...');
+
+            try {
+                const response = await fetch('/.netlify/functions/recognize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: dataUrl }),
+                });
+
+                const results: RecognitionResult[] = await response.json();
+
+                if (results.length > 0) {
+                    const firstResult = results[0];
+                    setRecognitionResult(`Recognized: ${firstResult.label}`);
+                    
+                    // Draw bounding box on the snapshot
+                    context.strokeStyle = 'lime';
+                    context.lineWidth = 4;
+                    context.strokeRect(firstResult.box.x, firstResult.box.y, firstResult.box.width, firstResult.box.height);
+                    const annotatedUrl = canvas.toDataURL('image/png');
+                    setSnapshot(annotatedUrl);
+
+                } else {
+                    setRecognitionResult('No face recognized.');
+                }
+            } catch (err) {
+                console.error('Recognition error:', err);
+                setRecognitionResult('Error during recognition.');
+            }
+        }
     }
-  }
+  };
+
 
   return (
     <div className="App">
@@ -93,15 +94,37 @@ function App() {
         <h1>Face Recognition System</h1>
         <p>University Entry / Exit Panel</p>
         <nav className="mode-switcher">
-          <button onClick={() => setMode('recognize')} disabled={mode === 'recognize'}>Recognize</button>
-          <button onClick={() => setMode('register')} disabled={mode === 'register'}>Register Student</button>
-          <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>Enroll Faces</button>
+          <button onClick={() => setMode('recognize')} disabled={mode === 'recognize'}>
+            Recognize
+          </button>
+          <button onClick={() => setMode('enroll')} disabled={mode === 'enroll'}>
+            Enroll
+          </button>
         </nav>
       </header>
 
       <main>
         <div className="main-content">
-          {renderContent()}
+          {mode === 'recognize' ? (
+            <div className="recognition-container">
+              <h2>Recognition Mode</h2>
+              <video ref={videoRef} autoPlay playsInline muted />
+              <button onClick={handleRecognize}>Recognize Snapshot</button>
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
+              {snapshot && (
+                <div className="snapshot-result">
+                  <h3>Last Snapshot:</h3>
+                  <img src={snapshot} alt="Snapshot" />
+                  <p>{recognitionResult}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="controls-container">
+              <h2>Enroll New Person</h2>
+              <EnrollmentForm />
+            </div>
+          )}
         </div>
         <aside className="sidebar">
           <EventLog />
@@ -109,7 +132,8 @@ function App() {
       </main>
 
       <footer className="App-footer">
-        <p>System Status: {status}</p>
+        {/* The status footer is less relevant now, but can be kept for general state */}
+        <p>Current Mode: {mode}</p>
       </footer>
     </div>
   );

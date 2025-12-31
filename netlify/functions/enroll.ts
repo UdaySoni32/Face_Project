@@ -22,10 +22,15 @@ const loadModels = async () => {
 };
 
 const handler: Handler = async (event: HandlerEvent) => {
-  // Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ message: 'Method Not Allowed' }) };
   }
+
+  // --- Authentication Check ---
+  if (!event.context || !event.context.clientContext || !event.context.clientContext.user) {
+    return { statusCode: 401, body: JSON.stringify({ message: 'Unauthorized: You must be logged in to enroll.' }) };
+  }
+  // --- End Authentication Check ---
 
   try {
     // Ensure models are loaded before processing

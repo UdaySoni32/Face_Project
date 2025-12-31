@@ -61,6 +61,12 @@ const handler: Handler = async (event: HandlerEvent) => {
     return { statusCode: 405, body: JSON.stringify({ message: 'Method Not Allowed' }) };
   }
 
+  // --- Authentication Check ---
+  if (!event.context || !event.context.clientContext || !event.context.clientContext.user) {
+    return { statusCode: 401, body: JSON.stringify({ message: 'Unauthorized: You must be logged in to recognize.' }) };
+  }
+  // --- End Authentication Check ---
+
   try {
     await loadModels();
     const matcher = await getFaceMatcher();

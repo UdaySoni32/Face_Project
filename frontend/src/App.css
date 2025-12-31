@@ -1,12 +1,13 @@
-/* Global Resets and Variables */
 :root {
-  --primary-bg: #1a1a1a;
-  --secondary-bg: #2a2a2a;
-  --border-color: #444;
-  --text-color: #f0f0f0;
-  --accent-color: #007bff;
-  --accent-hover: #0056b3;
-  --success-color: #28a745;
+  --primary-bg: #121212;
+  --secondary-bg: #1e1e1e;
+  --tertiary-bg: #2a2a2a;
+  --border-color: #3a3a3a;
+  --text-color: #e0e0e0;
+  --text-muted: #888;
+  --accent-color: #0d6efd;
+  --accent-hover: #0a58ca;
+  --success-color: #198754;
   --error-color: #dc3545;
 }
 
@@ -15,26 +16,22 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   background-color: var(--primary-bg);
   color: var(--text-color);
 }
 
-/* Main App Container */
+/* Main App Layout */
 .App {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 .App-header {
   background-color: var(--secondary-bg);
-  padding: 20px;
+  padding: 20px 40px;
   border-bottom: 1px solid var(--border-color);
-}
-
-.App-header h1 {
-  margin: 0;
-  font-size: 2rem;
+  text-align: center;
 }
 
 main {
@@ -44,69 +41,84 @@ main {
   padding: 20px;
   gap: 20px;
   justify-content: center;
+  flex-grow: 1;
 }
 
 .main-content {
+  background-color: var(--secondary-bg);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
   flex: 3;
   min-width: 500px;
+  max-width: 800px;
 }
 
 .sidebar {
-  flex: 1;
-  min-width: 300px;
+  background-color: var(--secondary-bg);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  flex: 2;
+  min-width: 400px;
+  align-self: flex-start;
 }
 
 .App-footer {
   padding: 10px;
-  position: fixed;
-  bottom: 0;
-  width: 100%;
+  text-align: center;
   background-color: var(--secondary-bg);
   border-top: 1px solid var(--border-color);
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* Mode Switcher Buttons */
 .mode-switcher {
-  margin-top: 15px;
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 
 .mode-switcher button {
-  background-color: transparent;
-  border: 1px solid var(--accent-color);
-  color: var(--accent-color);
+  background-color: var(--tertiary-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
   padding: 10px 20px;
-  margin: 0 5px;
   cursor: pointer;
   font-size: 1rem;
-  transition: all 0.3s ease;
+  border-radius: 5px;
+  transition: all 0.2s ease-in-out;
 }
 
 .mode-switcher button:hover {
   background-color: var(--accent-hover);
-  color: var(--text-color);
+  border-color: var(--accent-hover);
 }
 
 .mode-switcher button:disabled {
   background-color: var(--accent-color);
-  color: var(--text-color);
-  cursor: not-allowed;
+  border-color: var(--accent-color);
+  color: white;
+  cursor: default;
 }
 
-/* Video Container */
-.video-wrapper img {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 2px solid var(--border-color);
-}
-
-/* Event Log Table */
-.event-log-container {
-  background-color: var(--secondary-bg);
-  padding: 15px;
-  border-radius: 8px;
+/* Video & Form Elements */
+.video-wrapper img, .enrollment-form video {
+  width: 100%;
+  border-radius: 6px;
   border: 1px solid var(--border-color);
+  background-color: black;
 }
 
+h2 {
+  border-bottom: 2px solid var(--accent-color);
+  padding-bottom: 10px;
+  margin-top: 0;
+}
+
+/* Tables */
 .event-table {
   width: 100%;
   border-collapse: collapse;
@@ -114,64 +126,63 @@ main {
 }
 
 .event-table th, .event-table td {
-  padding: 8px 12px;
+  padding: 10px 15px;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
 }
 
 .event-table th {
-  font-weight: bold;
+  background-color: var(--tertiary-bg);
 }
 
-.event-table tbody tr:nth-child(even) {
-  background-color: var(--primary-bg);
+/* Forms */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
 }
-
-/* Enrollment Form */
-.enrollment-form video {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 2px solid var(--border-color);
-}
-
-.enrollment-form .form-controls {
-  margin-top: 15px;
+.form-group {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  text-align: left;
 }
-
-.enrollment-form input[type="text"] {
-  flex-grow: 1;
+.form-group label {
+  margin-bottom: 5px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.form-group input {
   padding: 10px;
   background-color: var(--primary-bg);
   border: 1px solid var(--border-color);
   color: var(--text-color);
   border-radius: 4px;
+  font-size: 1rem;
 }
-
-.enrollment-form button {
-  padding: 10px 20px;
+form button {
+  grid-column: span 2;
+  padding: 12px 20px;
+  margin-top: 10px;
   background-color: var(--accent-color);
   border: none;
   color: white;
   cursor: pointer;
   border-radius: 4px;
+  font-size: 1.1rem;
   transition: background-color 0.3s ease;
 }
-
-.enrollment-form button:hover {
+form button:hover {
   background-color: var(--accent-hover);
 }
-
-.enrollment-form button:disabled {
+form button:disabled {
   background-color: #555;
   cursor: not-allowed;
 }
-
 .feedback-message {
   margin-top: 15px;
   font-weight: bold;
+  padding: 10px;
+  border-radius: 4px;
 }
-
-.status-success { color: var(--success-color); }
-.status-error { color: var(--error-color); }
+.status-success { color: var(--success-color); background-color: rgba(40, 167, 69, 0.1); }
+.status-error { color: var(--error-color); background-color: rgba(220, 53, 69, 0.1); }

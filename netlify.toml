@@ -7,3 +7,9 @@
 [functions]
   # This is the directory where Netlify will find our serverless functions
   directory = "netlify/functions"
+
+[dev]
+  # This is the command that `netlify dev` will run to start your frontend server
+  command = "npm run dev --prefix frontend"
+  # The port that your frontend server runs on
+  targetPort = 5173

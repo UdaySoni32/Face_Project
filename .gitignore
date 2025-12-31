@@ -4,3 +4,6 @@ face_encodings.pickle
 
 # Docker build cache
 .dockerignore
+
+# Local Netlify folder
+.netlify

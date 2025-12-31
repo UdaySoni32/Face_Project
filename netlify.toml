@@ -1,0 +1,9 @@
+[build]
+  # This is the command Netlify will run to build your frontend
+  command = "npm run build --prefix frontend"
+  # This is the directory that contains the built site
+  publish = "frontend/dist"
+
+[functions]
+  # This is the directory where Netlify will find our serverless functions
+  directory = "netlify/functions"

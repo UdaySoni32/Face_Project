@@ -11,3 +11,4 @@ uvicorn[standard]
 python-multipart
 aiofiles
 jinja2
+email-validator

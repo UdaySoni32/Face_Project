@@ -11,11 +11,10 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
       },
-      // Proxying regular API calls
+      // Proxying regular API calls. Any request to /api/... will be forwarded to http://localhost:8000/api/...
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },

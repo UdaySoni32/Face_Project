@@ -2,5 +2,11 @@
   "name": "face-recognition-backend-functions",
   "version": "1.0.0",
   "description": "Netlify Functions backend for the face recognition app.",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@netlify/blobs": "^10.5.0",
+    "@netlify/functions": "^5.1.2",
+    "canvas": "^3.2.0",
+    "face-api.js": "^0.22.2"
+  }
 }

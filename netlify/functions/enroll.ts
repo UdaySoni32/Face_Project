@@ -1,22 +1,57 @@
 import { Handler } from '@netlify/functions';
 import * as faceapi from 'face-api.js';
-import { createCanvas, loadImage, Canvas, Image } from 'canvas';
+import { createCanvas, loadImage, Image } from 'canvas'; // Only Image needed for monkey patch, Canvas for temporary
 import { get and set } from '@netlify/blobs';
 
 // This is necessary for face-api.js to work in Node.js
-faceapi.env.monkeyPatch({ Canvas, Image });
+// face-api.js requires HTMLImageElement, HTMLCanvasElement, HTMLVideoElement, etc.
+// The 'canvas' library provides Node.js equivalents.
+faceapi.env.monkeyPatch({
+  Canvas: HTMLCanvasElement, // This will be the actual canvas element for drawing
+  Image: HTMLImageElement,  // This will be the actual Image element for loading
+});
 
 const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
 
+// Cache loaded models globally across warm function invocations
+let modelsLoaded = false;
+let faceMatcher: faceapi.FaceMatcher | null = null;
+const TOLERANCE = 0.6; // Threshold for face matching
+
 const loadModels = async () => {
+  if (modelsLoaded) return;
+  console.log('Loading face-api.js models from CDN...');
   await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
   await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
   await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+  modelsLoaded = true;
+  console.log('Models loaded.');
 };
 
-let modelsLoaded = false;
+// --- Helper to get all known faces from Netlify Blobs ---
+const loadLabeledFaceDescriptors = async () => {
+  const store = await get('faces', { type: 'json' }); // Get the main store of face data
 
-const handler: Handler = async (event) => {
+  if (!store || !Array.isArray(store)) {
+    return []; // No faces yet
+  }
+
+  const labeledDescriptors = store.map((data: { name: string; descriptor: number[] }) => {
+    // face-api.js expects Float32Array for descriptors
+    return new faceapi.LabeledFaceDescriptors(data.name, [new Float32Array(data.descriptor)]);
+  });
+
+  return labeledDescriptors;
+};
+
+const updateFaceMatcher = async () => {
+  const labeledDescriptors = await loadLabeledFaceDescriptors();
+  faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, TOLERANCE);
+  console.log(`FaceMatcher updated with ${labeledDescriptors.length} known faces.`);
+};
+
+// --- Enrollment Handler ---
+const enrollHandler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -25,12 +60,8 @@ const handler: Handler = async (event) => {
   }
 
   try {
-    // Load models only once per cold start
     if (!modelsLoaded) {
-      console.log('Loading face-api.js models...');
       await loadModels();
-      modelsLoaded = true;
-      console.log('Models loaded.');
     }
 
     const body = JSON.parse(event.body || '{}');
@@ -39,7 +70,7 @@ const handler: Handler = async (event) => {
     if (!name || !image) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ message: 'Name and image are required.' }),
+        body: JSON.stringify({ message: 'Name and image (base64) are required.' }),
       };
     }
 
@@ -63,14 +94,26 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Store the face descriptor in Netlify Blobs
-    const faceData = {
+    // Prepare face data for storage
+    const newFaceData = {
       name: name,
       descriptor: Array.from(detection.descriptor), // Convert Float32Array to regular Array for JSON
     };
 
-    // Use Netlify Blobs to save the data
-    await set(`face-${name.toLowerCase()}`, JSON.stringify(faceData));
+    // Load existing faces, add new one, and save back to blobs
+    const facesStore = await get('faces', { type: 'json' });
+    let currentFaces: Array<{ name: string; descriptor: number[] }> = [];
+
+    if (facesStore && Array.isArray(facesStore)) {
+        // Filter out old descriptor for the same person if exists
+        currentFaces = facesStore.filter(face => face.name.toLowerCase() !== name.toLowerCase());
+    }
+
+    currentFaces.push(newFaceData);
+    await set('faces', JSON.stringify(currentFaces)); // Overwrite with updated list
+
+    // Update FaceMatcher in memory for subsequent recognition calls (if warm)
+    await updateFaceMatcher(); 
 
     return {
       statusCode: 200,
@@ -80,9 +123,9 @@ const handler: Handler = async (event) => {
     console.error('Error during enrollment:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ message: 'Internal server error during enrollment.', error: error.message }),
+      body: JSON.stringify({ message: 'Internal server error during enrollment.', error: error instanceof Error ? error.message : 'Unknown error' }),
     };
   }
 };
 
-export { handler };
+export { enrollHandler as handler };

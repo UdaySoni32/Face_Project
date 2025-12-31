@@ -1,15 +1,20 @@
+# Netlify build configuration
 [build]
-  # This is the command Netlify will run to build your frontend
   command = "npm run build --prefix frontend"
-  # This is the directory that contains the built site
   publish = "frontend/dist"
 
+# Netlify functions configuration
 [functions]
-  # This is the directory where Netlify will find our serverless functions
   directory = "netlify/functions"
 
+# Netlify dev server configuration
 [dev]
-  # This is the command that `netlify dev` will run to start your frontend server
   command = "npm run dev --prefix frontend"
-  # The port that your frontend server runs on
   targetPort = 5173
+
+# Redirect rule for Single-Page Applications (SPA)
+# This is crucial for things like Netlify Identity's email links to work.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

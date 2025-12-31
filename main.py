@@ -5,7 +5,7 @@ import numpy as np
 import os
 import asyncio
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketState
@@ -19,15 +19,22 @@ class StudentRegistration(BaseModel):
     parent_email: EmailStr
     is_active: bool = True
 
+class LeaveRequest(BaseModel):
+    name: str
+    roll_number: str
+    application_number: str
+    leave_date: date
+    return_date: date
+    father_contact: str
+    mother_contact: str
+    status: str = "Pending"
+
 # --- Constants & Globals ---
 DATABASE_FILE = "log.db"
 DATASET_DIR = "dataset"
 ENCODINGS_FILE = "face_encodings.pickle"
 
 app = FastAPI()
-KNOWN_FACE_ENCODINGS = []
-KNOWN_FACE_NAMES = []
-CURRENTLY_SEEN_NAMES: Set[str] = set()
 
 # --- Mock Camu Database ---
 MOCK_CAMU_DB: Dict[str, Dict[str, Any]] = {
@@ -36,22 +43,34 @@ MOCK_CAMU_DB: Dict[str, Dict[str, Any]] = {
     "John Smith": {"student_id": "S54321", "is_active": False, "parent_email": "smith.parent@example.com"},
 }
 
-# --- Database & Core Logic (omitted for brevity, same as before) ---
+# --- Database Functions ---
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT, name TEXT NOT NULL, timestamp DATETIME NOT NULL)''')
-    conn.commit(); conn.close(); print("Database initialized.")
+    # Create events table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT, name TEXT NOT NULL, timestamp DATETIME NOT NULL)''')
+    # Create leave_requests table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS leave_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, roll_number TEXT, application_number TEXT, 
+            leave_date DATE, return_date DATE, father_contact TEXT, mother_contact TEXT, status TEXT, created_at DATETIME)''')
+    conn.commit()
+    conn.close()
+    print("Database initialized.")
 
+# Other functions (log_event, run_encoding_process, load_known_faces) are unchanged...
+# (omitted for brevity)
 def log_event(name: str):
-    student_info = MOCK_CAMU_DB.get(name)
+    student_info = MOCK_CAMU_DB.get(name);
     if not student_info: return
     student_id = student_info.get("student_id")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO events (student_id, name, timestamp) VALUES (?, ?, ?)", (student_id, name, timestamp))
-    conn.commit(); conn.close()
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO events (student_id, name, timestamp) VALUES (?, ?, ?)", (student_id, name, timestamp))
+        conn.commit()
     print(f"Event logged: {name} (ID: {student_id}) at {timestamp}")
 
 def run_encoding_process():
@@ -79,11 +98,13 @@ def load_known_faces():
             print(f"Successfully loaded {len(KNOWN_FACE_ENCODINGS)} known faces.")
     except Exception: run_encoding_process()
 
+
 # --- FastAPI App Events ---
 @app.on_event("startup")
 def startup_event(): init_db(); load_known_faces()
 
 # --- API Endpoints ---
+# (Enrollment, Events, Mock CAMU endpoints are unchanged)
 @app.post("/api/enroll")
 async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(...)):
     print(f"Received enrollment request for: {name}")
@@ -96,10 +117,11 @@ async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(..
 
 @app.get("/api/events")
 async def get_events():
-    conn = sqlite3.connect(DATABASE_FILE); conn.row_factory = sqlite3.Row
-    cursor = conn.cursor(); cursor.execute("SELECT student_id, name, timestamp FROM events ORDER BY timestamp DESC LIMIT 20")
-    events = [dict(row) for row in cursor.fetchall()]; conn.close()
-    return events
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT student_id, name, timestamp FROM events ORDER BY timestamp DESC LIMIT 20")
+        return [dict(row) for row in cursor.fetchall()]
 
 @app.get("/api/mock-camu/student/{name}")
 async def get_mock_student_details(name: str):
@@ -109,18 +131,38 @@ async def get_mock_student_details(name: str):
 
 @app.post("/api/mock-camu/register")
 async def register_mock_student(student: StudentRegistration):
-    """Adds a new student to the mock CAMU database."""
     if student.name in MOCK_CAMU_DB or any(s['student_id'] == student.student_id for s in MOCK_CAMU_DB.values()):
         raise HTTPException(status_code=409, detail="Student with this name or ID already exists.")
-    
     MOCK_CAMU_DB[student.name] = student.dict()
-    print(f"Registered new student in Mock CAMU DB: {student.name}")
     return {"message": f"Student {student.name} registered successfully."}
 
+# --- NEW Leave Request Endpoints ---
+@app.post("/api/leave-requests")
+async def submit_leave_request(request: LeaveRequest):
+    """Saves a new leave request to the database."""
+    created_at = datetime.now()
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO leave_requests (name, roll_number, application_number, leave_date, return_date, father_contact, mother_contact, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (request.name, request.roll_number, request.application_number, request.leave_date, request.return_date, request.father_contact, request.mother_contact, request.status, created_at))
+        conn.commit()
+    return {"message": "Leave request submitted successfully."}
+
+@app.get("/api/leave-requests")
+async def get_leave_requests():
+    """Retrieves all leave requests from the database."""
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM leave_requests ORDER BY created_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+# --- Root and WebSocket (omitted for brevity, same as before) ---
 @app.get("/")
 async def root(): return {"message": "Face Recognition API running."}
 
-# --- WebSocket Video Stream (omitted for brevity, same as before) ---
 @app.websocket("/ws/video_feed")
 async def video_feed(websocket: WebSocket):
     # This logic is identical to the previous version
@@ -150,7 +192,6 @@ async def video_feed(websocket: WebSocket):
                 for name in newly_seen: log_event(name)
                 CURRENTLY_SEEN_NAMES.clear(); CURRENTLY_SEEN_NAMES.update(current_names_in_frame)
             face_locations_for_drawing = face_recognition.face_locations(cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1])
-            # Super simplified drawing just to show who is seen
             names_to_draw = list(CURRENTLY_SEEN_NAMES)
             for i, (top, right, bottom, left) in enumerate(face_locations_for_drawing):
                 name = names_to_draw[i] if i < len(names_to_draw) else "Unknown"

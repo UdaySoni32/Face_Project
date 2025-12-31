@@ -1,7 +1,11 @@
 # Netlify build configuration
 [build]
-  command = "npm run build --prefix frontend"
-  publish = "frontend/dist"
+  # Set the base directory to our frontend folder
+  base    = "frontend"
+  # This command is now run from within the 'base' directory
+  command = "npm run build"
+  # The publish directory is relative to the 'base' directory
+  publish = "dist"
 
 # Netlify functions configuration
 [functions]

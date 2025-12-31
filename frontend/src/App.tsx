@@ -108,6 +108,9 @@ function App() {
           {mode === 'recognize' ? (
             <div className="recognition-container">
               <h2>Recognition Mode</h2>
+              <div className="instructional-text">
+                <p>Ensure you have enrolled people first. Position a face in the webcam preview below and click "Recognize Snapshot" to identify them.</p>
+              </div>
               <video ref={videoRef} autoPlay playsInline muted />
               <button onClick={handleRecognize}>Recognize Snapshot</button>
               <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -122,6 +125,9 @@ function App() {
           ) : (
             <div className="controls-container">
               <h2>Enroll New Person</h2>
+              <div className="instructional-text">
+                <p>Use this form to add a new person to the recognition system. Enter their name, take a clear, forward-facing snapshot, and then submit.</p>
+              </div>
               <EnrollmentForm />
             </div>
           )}

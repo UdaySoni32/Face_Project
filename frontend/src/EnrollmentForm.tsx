@@ -76,37 +76,46 @@ export const EnrollmentForm: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!name.trim() || !snapshot) {
+      setFeedback('Please enter a name and take a snapshot.');
+      return;
+    }
+
     setStatus('uploading');
-    setFeedback('Uploading images and training model...');
+    setFeedback('Uploading and processing...');
 
     const formData = new FormData();
     formData.append('name', name);
-    capturedImages.current.forEach((blob, index) => {
-      formData.append('files', blob, `${index}.png`);
-    });
+    // The snapshot is a base64 data URL, we need to convert it to a blob first
+    const blob = await (await fetch(snapshot)).blob();
+    formData.append('files', blob, `${name}.png`);
+
 
     try {
-      // The request will be proxied by Vite to http://localhost:8000/enroll
-      const response = await fetch('/api/enroll', {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL;
+      if (!baseUrl) {
+        throw new Error('API URL is not configured.');
+      }
+
+      const response = await fetch(`${baseUrl}/api/enroll`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`Server responded with status: ${response.status}`);
+        const result = await response.json().catch(() => ({ message: 'An unknown error occurred during enrollment.' }));
+        throw new Error(result.message);
       }
 
       const result = await response.json();
       setStatus('success');
       setFeedback(result.message || 'Enrollment successful!');
       setName(''); // Clear name for next enrollment
+      setSnapshot(null);
     } catch (err) {
       console.error("Error during enrollment:", err);
       setStatus('error');
-      setFeedback('Enrollment failed. See console for details.');
-    } finally {
-        capturedImages.current = [];
-        setProgress(0);
+      setFeedback(err instanceof Error ? err.message : 'Enrollment failed.');
     }
   };
 

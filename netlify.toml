@@ -1,0 +1,12 @@
+# Netlify build configuration for the React frontend
+[build]
+  base    = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+# Redirect rule for Single-Page Applications (SPA)
+# This is crucial for Netlify Identity and client-side routing to work.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

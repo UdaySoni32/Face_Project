@@ -1,6 +1,15 @@
+# Node.js dependencies
+frontend/node_modules/
+netlify/node_modules/
+
+# Local development cache and build output
+.netlify/
+frontend/dist/
+
 # User-specific data and generated files
 dataset/
 face_encodings.pickle
+log.db
 
-# Docker build cache
-.dockerignore
+# Environment files
+.env*

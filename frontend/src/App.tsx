@@ -14,9 +14,15 @@ function App() {
   const webSocketRef = useRef<WebSocket | null>(null);
 
   const connectWebSocket = () => {
-    // Construct WebSocket URL. It will be proxied by Vite dev server.
-    const wsProtocol = window.location.protocol === 'https-:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/video_feed`;
+    const baseUrl = import.meta.env.VITE_API_BASE_URL;
+    if (!baseUrl) {
+      setStatus('Error: API URL not configured.');
+      console.error('VITE_API_BASE_URL is not set.');
+      return;
+    }
+
+    // Convert http/https URL to ws/wss
+    const wsUrl = baseUrl.replace(/^(http)/, 'ws') + '/ws/video_feed';
 
     setStatus('Connecting...');
     const ws = new WebSocket(wsUrl);

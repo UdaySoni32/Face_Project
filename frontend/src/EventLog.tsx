@@ -15,8 +15,14 @@ export const EventLog: React.FC = () => {
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        // This request is proxied by Vite to the backend's /api/events endpoint
-        const response = await fetch('/api/events');
+        const baseUrl = import.meta.env.VITE_API_BASE_URL;
+        if (!baseUrl) {
+          // Don't throw an error, just show a message, as this might be expected in local dev without an env file.
+          setError('API URL not configured.');
+          return;
+        }
+
+        const response = await fetch(`${baseUrl}/api/events`);
         if (!response.ok) {
           throw new Error(`Failed to fetch events: ${response.status}`);
         }

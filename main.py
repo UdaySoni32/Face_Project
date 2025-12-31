@@ -9,11 +9,11 @@ from datetime import datetime, date
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketState
-from typing import List, Set, Dict, Any
+from typing import List, Set, Dict, Any, Optional
 from pydantic import BaseModel, EmailStr
 
 # --- Pydantic Models ---
-class StudentRegistration(BaseModel):
+class Student(BaseModel):
     student_id: str
     name: str
     parent_email: EmailStr
@@ -36,13 +36,6 @@ ENCODINGS_FILE = "face_encodings.pickle"
 
 app = FastAPI()
 
-# --- Mock Camu Database ---
-MOCK_CAMU_DB: Dict[str, Dict[str, Any]] = {
-    "Uday Soni": {"student_id": "25WU0101148", "is_active": True, "parent_email": "parent@example.com"},
-    "Jane Doe": {"student_id": "S98765", "is_active": True, "parent_email": "doe.parent@example.com"},
-    "John Smith": {"student_id": "S54321", "is_active": False, "parent_email": "smith.parent@example.com"},
-}
-
 # --- Database Functions ---
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
@@ -56,15 +49,47 @@ def init_db():
         CREATE TABLE IF NOT EXISTS leave_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, roll_number TEXT, application_number TEXT, 
             leave_date DATE, return_date DATE, father_contact TEXT, mother_contact TEXT, status TEXT, created_at DATETIME)''')
+    # Create students table (for persistent mock CAMU data)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS students (
+            student_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, is_active BOOLEAN, parent_email TEXT)''')
     conn.commit()
     conn.close()
     print("Database initialized.")
 
-# Other functions (log_event, run_encoding_process, load_known_faces) are unchanged...
-# (omitted for brevity)
+def add_student_to_db(student: Student):
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO students (student_id, name, is_active, parent_email) VALUES (?, ?, ?, ?)",
+                           (student.student_id, student.name, student.is_active, student.parent_email))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail=f"Student with ID '{student.student_id}' or name '{student.name}' already exists.")
+
+def get_student_from_db_by_name(name: str) -> Optional[Dict[str, Any]]:
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT student_id, name, is_active, parent_email FROM students WHERE name = ?", (name,))
+        result = cursor.fetchone()
+        return dict(result) if result else None
+
+def get_student_from_db_by_id(student_id: str) -> Optional[Dict[str, Any]]:
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT student_id, name, is_active, parent_email FROM students WHERE student_id = ?", (student_id,))
+        result = cursor.fetchone()
+        return dict(result) if result else None
+
 def log_event(name: str):
-    student_info = MOCK_CAMU_DB.get(name);
-    if not student_info: return
+    student_info = get_student_from_db_by_name(name)
+    if not student_info:
+        print(f"Event for '{name}' not logged: Name not found in persistent student DB.")
+        return
+        
     student_id = student_info.get("student_id")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(DATABASE_FILE) as conn:
@@ -73,6 +98,7 @@ def log_event(name: str):
         conn.commit()
     print(f"Event logged: {name} (ID: {student_id}) at {timestamp}")
 
+# Other core logic functions are unchanged... (omitted for brevity)
 def run_encoding_process():
     global KNOWN_FACE_ENCODINGS, KNOWN_FACE_NAMES; print("Starting face encoding process...")
     known_encodings, known_names = [], []; os.makedirs(DATASET_DIR, exist_ok=True)
@@ -98,13 +124,11 @@ def load_known_faces():
             print(f"Successfully loaded {len(KNOWN_FACE_ENCODINGS)} known faces.")
     except Exception: run_encoding_process()
 
-
 # --- FastAPI App Events ---
 @app.on_event("startup")
 def startup_event(): init_db(); load_known_faces()
 
 # --- API Endpoints ---
-# (Enrollment, Events, Mock CAMU endpoints are unchanged)
 @app.post("/api/enroll")
 async def enroll_person(name: str = Form(...), files: List[UploadFile] = File(...)):
     print(f"Received enrollment request for: {name}")
@@ -124,22 +148,23 @@ async def get_events():
         return [dict(row) for row in cursor.fetchall()]
 
 @app.get("/api/mock-camu/student/{name}")
-async def get_mock_student_details(name: str):
-    student_info = MOCK_CAMU_DB.get(name)
-    if not student_info: raise HTTPException(status_code=404, detail="Student not found")
+async def get_mock_student_details_api(name: str):
+    """Retrieves fake student details from the persistent database."""
+    student_info = get_student_from_db_by_name(name)
+    if not student_info: raise HTTPException(status_code=404, detail="Student not found in Mock CAMU DB")
     return student_info
 
 @app.post("/api/mock-camu/register")
-async def register_mock_student(student: StudentRegistration):
-    if student.name in MOCK_CAMU_DB or any(s['student_id'] == student.student_id for s in MOCK_CAMU_DB.values()):
-        raise HTTPException(status_code=409, detail="Student with this name or ID already exists.")
-    MOCK_CAMU_DB[student.name] = student.dict()
-    return {"message": f"Student {student.name} registered successfully."}
+async def register_mock_student_api(student: Student):
+    """Adds a new student to the persistent mock CAMU database."""
+    try:
+        add_student_to_db(student)
+        return {"message": f"Student {student.name} registered successfully."}
+    except HTTPException as e:
+        raise e
 
-# --- NEW Leave Request Endpoints ---
 @app.post("/api/leave-requests")
 async def submit_leave_request(request: LeaveRequest):
-    """Saves a new leave request to the database."""
     created_at = datetime.now()
     with sqlite3.connect(DATABASE_FILE) as conn:
         cursor = conn.cursor()
@@ -152,17 +177,16 @@ async def submit_leave_request(request: LeaveRequest):
 
 @app.get("/api/leave-requests")
 async def get_leave_requests():
-    """Retrieves all leave requests from the database."""
     with sqlite3.connect(DATABASE_FILE) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM leave_requests ORDER BY created_at DESC")
         return [dict(row) for row in cursor.fetchall()]
 
-# --- Root and WebSocket (omitted for brevity, same as before) ---
 @app.get("/")
 async def root(): return {"message": "Face Recognition API running."}
 
+# --- WebSocket Video Stream ---
 @app.websocket("/ws/video_feed")
 async def video_feed(websocket: WebSocket):
     # This logic is identical to the previous version
@@ -191,10 +215,14 @@ async def video_feed(websocket: WebSocket):
                 newly_seen = current_names_in_frame - CURRENTLY_SEEN_NAMES
                 for name in newly_seen: log_event(name)
                 CURRENTLY_SEEN_NAMES.clear(); CURRENTLY_SEEN_NAMES.update(current_names_in_frame)
-            face_locations_for_drawing = face_recognition.face_locations(cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1])
+            face_locations = face_recognition.face_locations(cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)[:, :, ::-1])
+            # For simplicity, just draw names from CURRENTLY_SEEN_NAMES
             names_to_draw = list(CURRENTLY_SEEN_NAMES)
-            for i, (top, right, bottom, left) in enumerate(face_locations_for_drawing):
-                name = names_to_draw[i] if i < len(names_to_draw) else "Unknown"
+            for i, (top, right, bottom, left) in enumerate(face_locations):
+                if i < len(names_to_draw):
+                    name = names_to_draw[i]
+                else:
+                    name = "Unknown" # Fallback if more faces than seen names, though unlikely with our logic
                 top *= 4; right *= 4; bottom *= 4; left *= 4
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
